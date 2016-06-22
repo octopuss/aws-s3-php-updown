@@ -1,0 +1,158 @@
+FORMAT: 1A
+
+# Backup API
+
+API describing backup server endpoints. Live documentation with mocks can be found at [Apiary](http://docs.backupserverapi.apiary.io/)
+
+## GET /backup/start
+
+Starts a backup process. Clears files in target folder and returns a token for the backup.
+
++ Response 200 (text/plain)
+    
+    + Body
+    
+            dmoqwxlesp
+
+## POST /backup
+
+Accepts multipart requests from the client and store contained files to specified folder.
+The file origin (database or filesystem) is determined from `X-data-type` request header.
+
++ Request (multipart/form-data; boundary=---BOUNDARY)
+
+    + Header
+
+            X-backup-id: (required, string, `awepwsxps`) ... Backup id 
+   
+    + Body
+    
+            -----BOUNDARY
+                Content-Disposition: form-data; name="/path/to/file/image.jpg"; filename="image.jpg"
+                Content-Type: image/jpeg
+                Content-Transfer-Encoding: base64
+                X-data-type: (required, string, `database|file`)
+        
+                /9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0a
+                HBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/2wBDAQkJCQwLDBgNDRgyIRwhMjIyMjIy
+                MjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjL/wAARCAABAAEDASIA
+                AhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAf/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFAEB
+                AAAAAAAAAAAAAAAAAAAAAP/EABQRAQAAAAAAAAAAAAAAAAAAAAD/2gAMAwEAAhEDEQA/AL+AD//Z
+            -----BOUNDARY
+        
+
++ Response 200
+
+## GET /backup/finish
+
++ Request
+
+    + Header
+
+            X-backup-id: (required, string, `awepwsxps`) ... Backup id 
+
++ Response 200
+   
+    + Body
+    
+            OK
+
+## GET /restore/start
+
+Returns list of files which can/should be restored. List contain JSON objects. File `size` is in bytes.
+
++ Response 200 (application/json)
+
+    + Body
+    
+            {
+                "type":"database",
+                "size":248,
+                "path":"/792de398773c9df8e85268c4fe9c33937efb4f1f/792de398773c9df8e85268c4fe9c33937efb4f1f.ddl.sql"
+            }
+
+## POST /restore/files
+
+Returns files as body of a multipart response. This response should be parsed by client.
+
++ Request (application/json)
+
+    + Body
+    
+            {
+                "type":"database",
+                "size":248,
+                "path":"/792de398773c9df8e85268c4fe9c33937efb4f1f/792de398773c9df8e85268c4fe9c33937efb4f1f.ddl.sql"
+            },
+            {
+                "type":"file",
+                "size":22248,
+                "path":"/some/image/nice.jpg"
+            }
+
++ Response 200 (multipart/x-mixed-replace; charset=UTF-8; boundary=---BOUNDARY)
+
+  + Header
+  
+            X-files-count: (required, int, `5`) ... Files in multipart response
+  + Body
+            
+            -----BOUNDARY
+                Content-Disposition: attchment; type=datbase; filename="/792de398773c9df8e85268c4fe9c33937efb4f1f/792de398773c9df8e85268c4fe9c33937efb4f1f.ddl.sql"
+                Content-Type: application/octet-stream
+                Content-length: 248
+                
+                /9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0a
+                HBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/2wBDAQkJCQwLDBgNDRgyIRwhMjIyMjIy
+                MjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjL/wAARCAABAAEDASIA
+                AhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAf/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFAEB
+                AAAAAAAAAAAAAAAAAAAAAP/EABQRAQAAAAAAAAAAAAAAAAAAAAD/2gAMAwEAAhEDEQA/AL+AD//Z
+           
+            -----BOUNDARY
+                Content-Disposition: attchment; type=file; filename="/path/to/file/image.jpg"
+                Content-Type: application/octet-stream
+                Content-length: 22248
+                
+                /9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0a
+                HBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/2wBDAQkJCQwLDBgNDRgyIRwhMjIyMjIy
+                MjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjL/wAARCAABAAEDASIA
+                AhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAf/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFAEB
+                AAAAAAAAAAAAAAAAAAAAAP/EABQRAQAAAAAAAAAAAAAAAAAAAAD/2gAMAwEAAhEDEQA/AL+AD//Z
+            -----BOUNDARY--
+            
+
+### POST /restore/file
+
+Returns single file as an attachment to the request. This kind of response is used when the file or database file
+is too big for being streamed. File type and file name is set in `X-file-name` and `X-file-type` response headers.
+
++ Request (application/json)
+
+    + Body
+    
+            {
+                "type":"file",
+                "size":12222248,
+                "path":"/big/file/movie.avi"
+            }
+
++ Response 200 (attachment; filename="movie.avi")
+
+    + Header
+    
+            X-file-name: (string, required, `/big/file/movie.avi`)
+            X-file-type: (string, required, `file`)
+    
+    + Body
+    
+            ‰AVI XXXXXXXXXXXXFZFZGEDHDSRGFEThERGEDFG
+
+## GET /restore/finish
+
+Just a dummy response "OK" to the caller that everything is OK. If client does not get this response, something went wrong.
+
++ Response 200
+   
+    + Body
+    
+            OK
