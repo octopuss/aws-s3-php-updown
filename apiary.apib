@@ -1,117 +1,144 @@
 FORMAT: 1A
+LIVE-DOCS: http://docs.backupserverapi.apiary.io/
 
-# Backup API
+# Backup and Restore API
 
-API describing backup server endpoints. Live documentation with mocks can be found at [Apiary](http://docs.backupserverapi.apiary.io/)
+This document describes endpoints provided by the backup server (`versionpress/backup-server`) to backup clients (`versionpress/backup-client`).
+
+Backups and restores happen in *sessions*, i.e., a set of related requests identified by a session ID. Commonly, the 'start' endpoint creates a session, then a series of 'download' or 'upload' requests do the real work and the 'finish' endpoint closes the session.  
+
+## Errors
+
+The server can currently return the following errors. Specific error codes and descriptive messages will be added in the future.
+
+- `404` status code is returned when the client calls an endpoint that does not exist, or calls it with a wrong HTTP method.
+- `400` status code is returned when the client sends invalid request (incorrectly formatted, unsupported `Content-Type` etc.).
+- `499` status code is returned when the client aborts the request. Right now, this might happen when the client PHP script is terminated; in the future, this will also be used for network errors, etc.
+- `500` status code is returned on internal server error. The client may attempt to run the request again: all are idempotent.
+
+
+# Group Full Backup
+
+The full backup process is managed by the following three endpoints, called in a sequence.
 
 ## GET /backup/start
 
-Starts a backup process. Clears files in target folder and returns a token for the backup.
+Starts a full backup process. Response contains a session ID that must be sent with all subsequent requests, forming a backup session.
 
 + Response 200 (text/plain)
-    
+
     + Body
-    
+
             dmoqwxlesp
 
-## POST /backup
+## POST /backup/upload
 
-Accepts multipart requests from the client and store contained files to specified folder.
-The file origin (database or filesystem) is determined from `X-data-type` request header.
+Accepts multipart requests and stores the data on the server. The limit is 1000 parts per request.
+
+Each part represents either a **file** or a bit of a **database**. The server doesn't  care too much about the actual format, it will treat all data parts similarly – just store them. The client must, however, indicate which data type it is sending using the `X-Data-Type` header – it determines the storage location (at least). `X-Data-Action` header determines if the file should be backed up or removed from server. `X-Data-Checksum` contains checksum of the file.
+
+Each part must also contain the `Content-Disposition` header with the `name` parameter containing a **full path** to the original file. We slightly  misuse the `name` attribute to pass pass the original file path to the server, because according to [RFC2388](https://www.ietf.org/rfc/rfc2388.txt) the `filename` may contain only original local file name.
+
+The upload can be re-attempted; it would just replace the file on the server. 
+
 
 + Request (multipart/form-data; boundary=---BOUNDARY)
 
     + Header
 
-            X-backup-id: (required, string, `awepwsxps`) ... Backup id 
-   
+            X-Backup-Id: (required, string, `awepwsxps`) ... Backup id
+
     + Body
-    
+
             -----BOUNDARY
-                Content-Disposition: form-data; name="/path/to/file/image.jpg"; filename="image.jpg"
-                Content-Type: image/jpeg
-                Content-Transfer-Encoding: base64
-                X-data-type: (required, string, `database|file`)
-        
+                Content-Disposition: form-data; name="/path/to/file/image.jpg"
+                X-Data-Type: file
+                X-Data-Action: backup
+                X-Data-Checksum: aab4034203422295322
+
                 /9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0a
                 HBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/2wBDAQkJCQwLDBgNDRgyIRwhMjIyMjIy
                 MjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjL/wAARCAABAAEDASIA
                 AhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAf/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFAEB
                 AAAAAAAAAAAAAAAAAAAAAP/EABQRAQAAAAAAAAAAAAAAAAAAAAD/2gAMAwEAAhEDEQA/AL+AD//Z
             -----BOUNDARY
-        
+                Content-Disposition: form-data; name="/0f7c48ed7c4e7a4c1471c67f912e0988eef20802/0f7c48ed7c4e7a4c1471c67f912e0988eef20802.ddl.sql"
+                X-Data-Type: database
+                X-Data-Action: backup
+                X-Data-Checksum: efgade392034348443202
+             
+                CREATE TABLE `wp_options` ( `option_id` bigint(20) unsigned NOT NULL AUTO_INCREMENT, `option_name` varchar(191) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '', `option_value` longtext COLLATE utf8mb4_unicode_ci NOT NULL, `autoload` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'yes', PRIMARY KEY (`option_id`), UNIQUE KEY `option_name` (`option_name`) ) ENGINE=InnoDB AUTO_INCREMENT=154 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            -----BOUNDARY
+                Content-Disposition: form-data; name="/path/to/text.txt"
+                X-Data-Type: file
+                X-Data-Action: remove
 
 + Response 200
 
-## GET /backup/finish
+## POST /backup/finish
+
+Finishes the full backup process – closes the session.
 
 + Request
 
     + Header
 
-            X-backup-id: (required, string, `awepwsxps`) ... Backup id 
+            X-Backup-Id: (required, string, `awepwsxps`) ... Backup id
 
 + Response 200
-   
+
     + Body
-    
+
             OK
+
+
+# Group Full Restore
+
+Works similarly to backup, just in the opposite direction.
+
+There is no concept of session IDs here – the `/restore/start` method just provides a list of everything that is stored on the server and the client downloads it.
+
 
 ## GET /restore/start
 
-Returns list of files which can/should be restored. List contain JSON objects. File `size` is in bytes.
+Returns list of objects to download.
 
-+ Response 200 (application/json)
-
-    + Body
-    
-            {
-                "type":"database",
-                "size":248,
-                "path":"/792de398773c9df8e85268c4fe9c33937efb4f1f/792de398773c9df8e85268c4fe9c33937efb4f1f.ddl.sql"
-            }
-
-## POST /restore/files
-
-Returns files as body of a multipart response. This response should be parsed by client.
-
-+ Request (application/json)
++ Response 200 (text/plain)
 
     + Body
     
-            {
-                "type":"database",
-                "size":248,
-                "path":"/792de398773c9df8e85268c4fe9c33937efb4f1f/792de398773c9df8e85268c4fe9c33937efb4f1f.ddl.sql"
-            },
-            {
-                "type":"file",
-                "size":22248,
-                "path":"/some/image/nice.jpg"
-            }
+            database|/053c18121740320fc3c9616f641ab348e96a41d8/053c18121740320fc3c9616f641ab348e96a41d8.ddl.sql
+            database|/053c18121740320fc3c9616f641ab348e96a41d8/07/0716d9708d321ffb6a00818614779e779925365c.vpb
+            file|/wp-admin/css/colors/ocean/colors.css
+
+## POST /restore/download
+
+Submits a list of objects to download a receives them in a multipart response (same format as `backup/upload`).
+
+There is no server-side limit here, however, in practice, the client might ask just for a subset, e.g., to parallelize the download process or to split a huge list into smaller chunks. Response is returned as multipart. `Content-Disposition` header contains *filename* with original local path, which is slightly different from [RFC2616](https://www.w3.org/Protocols/rfc2616/rfc2616-sec19.html).
+
++ Request (application/text)
+
+    + Body
+    
+             database|/792de398773c9df8e85268c4fe9c33937efb4f1f/792de398773c9df8e85268c4fe9c33937efb4f1f.ddl.sql
+             file|/wp-admin/css/colors/ocean/colors.css
 
 + Response 200 (multipart/x-mixed-replace; charset=UTF-8; boundary=---BOUNDARY)
 
-  + Header
-  
-            X-files-count: (required, int, `5`) ... Files in multipart response
   + Body
             
             -----BOUNDARY
-                Content-Disposition: attchment; type=datbase; filename="/792de398773c9df8e85268c4fe9c33937efb4f1f/792de398773c9df8e85268c4fe9c33937efb4f1f.ddl.sql"
-                Content-Type: application/octet-stream
+                Content-Disposition: attachment; filename="/792de398773c9df8e85268c4fe9c33937efb4f1f/792de398773c9df8e85268c4fe9c33937efb4f1f.ddl.sql"
                 Content-length: 248
+                X-Data-Type: database
                 
-                /9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0a
-                HBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/2wBDAQkJCQwLDBgNDRgyIRwhMjIyMjIy
-                MjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjL/wAARCAABAAEDASIA
-                AhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAf/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFAEB
-                AAAAAAAAAAAAAAAAAAAAAP/EABQRAQAAAAAAAAAAAAAAAAAAAAD/2gAMAwEAAhEDEQA/AL+AD//Z
+                CREATE TABLE `table!` ( `id` int(11) NOT NULL AUTO_INCREMENT, `value` text NOT NULL, PRIMARY KEY (`id`) ) ENGINE=InnoDB AUTO_INCREMENT=6 DEFAULT CHARSET=utf8
            
             -----BOUNDARY
-                Content-Disposition: attchment; type=file; filename="/path/to/file/image.jpg"
-                Content-Type: application/octet-stream
+                Content-Disposition: attachment;  filename="/path/to/file/image.jpg"
                 Content-length: 22248
+                X-Data-Type: file
                 
                 /9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0a
                 HBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/2wBDAQkJCQwLDBgNDRgyIRwhMjIyMjIy
@@ -120,39 +147,33 @@ Returns files as body of a multipart response. This response should be parsed by
                 AAAAAAAAAAAAAAAAAAAAAP/EABQRAQAAAAAAAAAAAAAAAAAAAAD/2gAMAwEAAhEDEQA/AL+AD//Z
             -----BOUNDARY--
             
+## POST /restore/finish
 
-### POST /restore/file
-
-Returns single file as an attachment to the request. This kind of response is used when the file or database file
-is too big for being streamed. File type and file name is set in `X-file-name` and `X-file-type` response headers.
-
-+ Request (application/json)
-
-    + Body
-    
-            {
-                "type":"file",
-                "size":12222248,
-                "path":"/big/file/movie.avi"
-            }
-
-+ Response 200 (attachment; filename="movie.avi")
-
-    + Header
-    
-            X-file-name: (string, required, `/big/file/movie.avi`)
-            X-file-type: (string, required, `file`)
-    
-    + Body
-    
-            ‰AVI XXXXXXXXXXXXFZFZGEDHDSRGFEThERGEDFG
-
-## GET /restore/finish
-
-Just a dummy response "OK" to the caller that everything is OK. If client does not get this response, something went wrong.
+Finishes the restore process. Client and server just acknowledge that all is done.
 
 + Response 200
    
     + Body
     
             OK
+
+# Group Backup Items
+
+## POST /backup-items
+
+Provides list of files according to the request content with their checksums. If Requested entry is a path to the folder, it is listed recursively. If root folder `/` is provided, all backup items for specific type are listed.
+
++ Request (text/plain)
+
+    + Body
+    
+            database|/792de398773c9df8e85268c4fe9c33937efb4f1f/792de398773c9df8e85268c4fe9c33937efb4f1f.ddl.sql
+            file|/wp-admin/css/colors/ocean/colors.css
+        
++ Response 200 (text/plain)
+
+    + Body
+    
+            database|2330234hbdcfe58437aedfee|/792de398773c9df8e85268c4fe9c33937efb4f1f/792de398773c9df8e85268c4fe9c33937efb4f1f.ddl.sql
+            file|233023458437hgedcaaedfee|/some/image/image.jpg
+            file|eass23458437hgedcaabbbee|/some/image/thumbnails/image_10x50.jpg
